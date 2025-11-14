@@ -91,10 +91,8 @@ def initialize_gemini():
     try:
         genai.configure(api_key=API_KEY)
 
-        model = genai.GenerativeModel(
-            'gemini-2.5-flash',
-            system_instruction=SYSTEM_PROMPT
-        )
+        # Create model without system_instruction (not supported in all versions)
+        model = genai.GenerativeModel('gemini-2.5-flash')
 
         # Safety settings
         safety_settings = {
@@ -112,9 +110,11 @@ def initialize_gemini():
             max_output_tokens=300,
         )
 
+        # Start chat with system prompt as first message
         st.session_state.chat_session = model.start_chat(history=[])
         st.session_state.safety_settings = safety_settings
         st.session_state.generation_config = generation_config
+        st.session_state.system_prompt_sent = False
 
         return True
     except Exception as e:
@@ -169,7 +169,7 @@ def get_bot_response(user_input):
 
 
 def text_to_speech(text):
-    """Convert text to speech and return audio player HTML"""
+    """Convert text to speech and return audio bytes"""
     try:
         # Create gTTS object
         tts = gTTS(text=text, lang='en', slow=False)
@@ -179,21 +179,14 @@ def text_to_speech(text):
             tts.save(temp_audio.name)
             temp_audio_path = temp_audio.name
 
-        # Read audio file and encode to base64
+        # Read audio file
         with open(temp_audio_path, 'rb') as audio_file:
             audio_bytes = audio_file.read()
-            audio_base64 = base64.b64encode(audio_bytes).decode()
 
         # Clean up temp file
         os.unlink(temp_audio_path)
 
-        # Return HTML audio player with autoplay
-        audio_html = f"""
-        <audio autoplay>
-            <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
-        </audio>
-        """
-        return audio_html
+        return audio_bytes
     except Exception as e:
         st.error(f"Text-to-speech error: {e}")
         return None
@@ -253,14 +246,6 @@ for message in st.session_state.chat_history:
         </div>
         """, unsafe_allow_html=True)
 
-        # Play voice for the last bot message only
-        if message == st.session_state.chat_history[-1] and st.session_state.voice_enabled:
-            if 'audio_played' not in message:
-                audio_html = text_to_speech(message['content'])
-                if audio_html:
-                    st.markdown(audio_html, unsafe_allow_html=True)
-                    message['audio_played'] = True
-
 # Voice input section
 st.markdown("### 🎤 Voice Input")
 st.info("Click the microphone button below to record your message, then it will automatically transcribe and send!")
@@ -301,10 +286,21 @@ if audio_bytes and audio_bytes != st.session_state.last_audio:
             'content': bot_response
         })
 
+        # Generate voice response if enabled
+        if st.session_state.voice_enabled:
+            with st.spinner("🔊 Generating voice response..."):
+                st.session_state.last_response_audio = text_to_speech(bot_response)
+
         # Rerun to update display
         st.rerun()
     else:
         st.error("❌ Could not understand the audio. Please try again or use text input.")
+
+# Play the latest bot response audio if available
+if st.session_state.last_response_audio and st.session_state.voice_enabled:
+    st.markdown("### 🔊 Bot Voice Response")
+    st.audio(st.session_state.last_response_audio, format='audio/mp3', autoplay=True)
+    st.caption("↑ Click play if audio doesn't start automatically")
 
 # Divider
 st.markdown("---")
@@ -342,6 +338,11 @@ if send_button and user_input:
         'content': bot_response
     })
 
+    # Generate voice response if enabled
+    if st.session_state.voice_enabled:
+        with st.spinner("🔊 Generating voice response..."):
+            st.session_state.last_response_audio = text_to_speech(bot_response)
+
     # Rerun to update display
     st.rerun()
 
@@ -354,6 +355,7 @@ if st.session_state.chat_history:
             st.session_state.chat_history = []
             st.session_state.chat_session = None
             st.session_state.last_audio = None
+            st.session_state.last_response_audio = None
             st.rerun()
 
 # Footer
