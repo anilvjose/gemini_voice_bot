@@ -69,6 +69,8 @@ if 'voice_enabled' not in st.session_state:
     st.session_state.voice_enabled = True
 if 'last_response_audio' not in st.session_state:
     st.session_state.last_response_audio = None
+if 'system_prompt_sent' not in st.session_state:
+    st.session_state.system_prompt_sent = False
 
 # API Configuration
 API_KEY = 'AIzaSyBpqgFYLuF_hUAPJWI8ZJKmqzjazPkCNoA'
@@ -154,6 +156,16 @@ def transcribe_audio(audio_bytes):
 def get_bot_response(user_input):
     """Get response from Gemini"""
     try:
+        # Send system prompt as first message if not sent yet
+        if not st.session_state.get('system_prompt_sent', False):
+            st.session_state.chat_session.send_message(
+                SYSTEM_PROMPT,
+                generation_config=st.session_state.generation_config,
+                safety_settings=st.session_state.safety_settings
+            )
+            st.session_state.system_prompt_sent = True
+
+        # Send user message
         response = st.session_state.chat_session.send_message(
             user_input,
             generation_config=st.session_state.generation_config,
@@ -299,8 +311,17 @@ if audio_bytes and audio_bytes != st.session_state.last_audio:
 # Play the latest bot response audio if available
 if st.session_state.last_response_audio and st.session_state.voice_enabled:
     st.markdown("### 🔊 Bot Voice Response")
-    st.audio(st.session_state.last_response_audio, format='audio/mp3', autoplay=True)
-    st.caption("↑ Click play if audio doesn't start automatically")
+
+    # Convert audio bytes to base64 for HTML audio player with autoplay
+    audio_base64 = base64.b64encode(st.session_state.last_response_audio).decode()
+    audio_html = f"""
+        <audio controls autoplay style="width: 100%;">
+            <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
+            Your browser does not support the audio element.
+        </audio>
+    """
+    st.markdown(audio_html, unsafe_allow_html=True)
+    st.caption("🎵 Audio should play automatically. If not, click the play button above.")
 
 # Divider
 st.markdown("---")
@@ -356,6 +377,7 @@ if st.session_state.chat_history:
             st.session_state.chat_session = None
             st.session_state.last_audio = None
             st.session_state.last_response_audio = None
+            st.session_state.system_prompt_sent = False
             st.rerun()
 
 # Footer
